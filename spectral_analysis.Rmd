@@ -1,0 +1,152 @@
+---
+title: "Spectral Bands"
+author: "Anurag Banerjee"
+date: "2026-04-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(corrplot)
+library(psych)
+library(readxl)
+```
+
+```{r}
+cn_multiple <- read_excel("CN_2_table.xlsx", sheet = "JuneN")
+cn_single <- read_excel("CN_2_table.xlsx", sheet = "RawN")
+
+y <- "Total_N"
+single_band <- colnames(cn_single)[2:5]
+mult_band <- colnames(cn_multiple)[2:7]
+
+spectral_cols <- c(single_band, mult_band)
+
+cn_single_mult <- cbind(cn_multiple, cn_single)
+
+X <- cn_single_mult %>% dplyr::select(all_of(spectral_cols))
+
+X_scaled <- scale(X, center = T, scale = T)
+```
+PCA:
+
+```{r}
+
+pca_single <- prcomp(X %>% dplyr::select(all_of(single_band)), center = T, scale. = T)
+pca_mult <- prcomp(X %>% dplyr::select(all_of(mult_band)), center = T, scale. = T)
+
+# View summary
+summary(pca_mult)
+
+# Standard deviations of PCs
+pca_single$sdev
+
+# Loadings (eigenvector coefficients)
+pca_mult$rotation
+
+# PC scores for observations
+head(pca_single$x)
+```
+
+Scree plot and bi plot for single:
+```{r}
+plot(pca_single, type = "l")
+biplot(pca_single, scale = 0)
+```
+
+
+```{r}
+k <- 2
+pcs_single <- data.frame(pca_single$x[,1:k])
+pcs_mult <- data.frame(pca_mult$x[,1:k])
+colnames(pcs_single) <- c("PC1_Single", "PC2_Single")
+colnames(pcs_mult) <- c("PC1_Mult", "PC2_Mult")
+
+pca_df <- cbind(pcs_single, pcs_mult)
+```
+
+
+
+Factor Analysis:
+
+```{r}
+parallel_model_single <- fa.parallel(X %>% dplyr::select(all_of(single_band)),
+                              fm = "pa",
+                              fa = "fa",
+                              n.iter = 50,
+                              main = "Parallel Analysis Scree Plot - Single Bands")
+
+```
+
+
+```{r}
+parallel_model_mult <- fa.parallel(X %>% dplyr::select(all_of(mult_band)),
+                              fm = "pa",
+                              fa = "fa",
+                              n.iter = 50,
+                              main = "Parallel Analysis Scree Plot - Multiple Bands")
+
+```
+
+
+
+
+```{r}
+efa_model_single <- fa(r = X %>% dplyr::select(all_of(single_band)),
+                     nfactors = 2,
+                     fm = "pa", 
+                     rotate = "oblimin",
+                     scores = "regression")
+
+
+efa_model_mult <- fa(r = X %>% dplyr::select(all_of(mult_band)),
+                     nfactors = 2,
+                     fm = "pa", 
+                     rotate = "oblimin",
+                     scores = "regression")
+
+
+```
+
+
+Loadings:
+```{r}
+print(efa_model_single$loadings)
+```
+
+Loadings:
+```{r}
+print(efa_model_mult$loadings)
+```
+
+Loadings:
+```{r}
+print(efa_model_single$weights)
+```
+
+```{r}
+print(efa_model_mult$weights)
+```
+
+
+```{r}
+lf_single <- efa_model_single$scores[, 1:2]
+lf_mult <- efa_model_mult$scores[, 1:2]
+colnames(lf_single) <- c("LF_1_single", "LF_2_single")
+colnames(lf_mult) <- c("LF_1_mult", "LF_2_mult")
+lf_df <- cbind(lf_single, lf_mult)
+lf_df$Y <- cn_multiple$Total_N
+```
+
+
+Fit Regression Models:
+
