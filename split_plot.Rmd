@@ -1,0 +1,260 @@
+---
+title: "Soil Aggregation v/s AMF and Cover Crops"
+author: "Anurag Banerjee"
+date: "2026-04-01"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+
+```{r, echo = FALSE, include=FALSE}
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+```
+
+
+The goal of this analysis is to see how soil aggregation metrics like water sieving... are affected by cover crops and AMF in both Fusarium and non Fusarium infected crops. For this we will use a split plot design to analyze the data. We have multiple aggregation metrics but we will focus on WIN... for now and use that as our response. The plot has been divided into 4 whole plots by cover crop and Fusarium infected based on the following levels:
+1. Cover Crop and Fusarium (C-F)
+2. Cover Crop and Not infected by Fusarium (C-nF)
+3. No Cover Crop and Fusarium (nC-F)
+4. No Cover Crop and Not infected by Fusarium (nC-nF)
+
+(These are the whole plots)
+
+I think each whole plot should be modeled as a random effect and not just a fixed effect.
+
+Each whole plot is divided into 3 split plots based on the 3 levels of AMF.
+
+The statistical model is:
+
+$Y_{ijk} = \mu + \alpha_i + \beta_j + \gamma_l + (\alpha\beta)_{ij} + u_{ik} + \epsilon_{ijk}$
+
+$Y_{ijk}$ = kth replicate of the response measured in the jth split plot in the ith whole plot
+
+$\alpha_i$ = fixed effect of the ith whole plot
+
+$\beta_j$ = fixed effect of the jth split plot
+
+$\gamma_l$ = nuisance factor for year
+
+$(\alpha\beta)_{ij}$ = interaction effect of ith whole plot and jth split plot (this may not be required)
+
+$u_{ik}$ = random effect of the subplot k nested within ith whole plot, this follows a $N(0, \sigma_u^2)$ distribution
+
+$\epsilon_{ijk}$ = error due to kth replicate of the response (kth subplot) measured in the jth split plot in the ith whole plot, this follows a $N(0, \sigma^2)$ distribution
+
+i = {1,2,3,4}; j = {1,2,3}; k = {1,2,3,4,5,6,7,8}
+
+k goes up to 4 for a single year, but since we have data for 2024 and 2025, we are assuming they are just repeated measurements hence we have 8 replications.
+
+
+```{r, echo = FALSE, include=FALSE}
+df <- read_excel("WSA NIFA.2_with_descriptive_analysis.xlsx", sheet = "Compiled Data")
+head(df)
+```
+
+```{r, echo = FALSE, include=FALSE}
+colnames(df)[colnames(df) == "Management Type"] = "Whole_Plot"
+colnames(df)[colnames(df) == "Plot No."] = "Plot_No"
+
+```
+
+```{r, echo = FALSE, include=FALSE}
+df <- df %>% mutate(Whole_Plot = str_replace_all(Whole_Plot, "C-nf", "c-nf"))
+
+```
+
+Checking for balanced design
+```{r, echo = FALSE}
+table(df$Whole_Plot, df$Treatment)
+```
+Balanced design verified
+
+Changed the structure to make it easier to write contrasts later on:
+1: "c-f", 2: "c-nf", 3: "nc-nf", 4: "nc-f"
+
+1: "W", 2: "AMF", 3: "F"
+
+```{r, echo = FALSE, include=FALSE}
+df <- df %>% mutate(
+  Year = factor(Year),
+  Plot_No = factor(Plot_No),
+  Whole_Plot = factor(Whole_Plot, levels = c("c-f", "c-nf", "nc-nf", "nc-f")),
+  Treatment = factor((Treatment), levels = c("W", "AMF", "F")))
+```
+
+
+
+```{r}
+df_model <- df[complete.cases(df[,-4]),]
+model <- lmer(WSA ~ Whole_Plot * Treatment + Year + (1|Plot_No), data = df_model)
+summary(model)
+```
+
+
+Cell means:
+$\mu = (\mu_{11}, \mu_{12}, \mu_{13}, \mu_{14}, \mu_{21}, \mu_{22}, \mu_{23}, \mu_{24}, \mu_{31}, \mu_{32}, \mu_{33}, \mu_{34}, \mu_{41}, \mu_{42}, \mu_{43}, \mu_{44})^T$
+
+If C is a vector of contrasts, and $\mu$ is the vector of cell means, we write contrasts in the form of $c\mu$, s.t. this linear function of $\mu$ is estimable.
+
+In Fusarium and non-Fusarium infected crops we will compare the joint effects of AMF and Cover crop separately, i.e. one set of contrasts for infected and one set for non-infected:
+
+(We are seeing if there's a difference since we wanna see the change in joint or interaction effects of AMF and cover crops)
+
+1. Test the difference in AMF - placebo (W) for cover crop and Fusarium and AMF - placebo (W) for no cover crop in Fusarium, i.e. 
+\newline
+$H_0: \frac{\mu_{12}-\mu_{11}}{2} - \frac{\mu_{42}-\mu_{41}}{2} = 0$
+
+This contrast is AMF vs W in Fusarium, averaged over cover crop
+
+$H_a: \frac{\mu_{12}-\mu_{11}}{2} - \frac{\mu_{42}-\mu_{41}}{2} \neq 0$
+
+```{r}
+emm <- emmeans(model, ~ Whole_Plot * Treatment)
+joint_contrast <- contrast(
+  emm,
+  method = list(
+    "Does cover crop modify the AMF vs W effect under Fusarium?" =
+      c(-1, 1, 0,
+         0, 0, 0,
+         0, 0, 0,
+        1, -1, 0) / 2
+  )
+)
+
+summary(joint_contrast, infer = TRUE)
+```
+
+2. AMF v/s F w.r.t cover crop in Fusarium infected:
+
+$H_0: \frac{\mu_{12}-\mu_{13}}{2} - \frac{\mu_{42}-\mu_{43}}{2} = 0$
+
+This contrast is AMF vs W in Fusarium, averaged over cover crop
+
+$H_a: \frac{\mu_{12}-\mu_{13}}{2} - \frac{\mu_{42}-\mu_{43}}{2} \neq 0$
+```{r}
+emm <- emmeans(model, ~ Whole_Plot * Treatment)
+joint_contrast <- contrast(
+  emm,
+  method = list(
+    "Does cover crop modify the AMF vs F effect under Fusarium?" =
+      c(0, 1, -1,
+         0, 0, 0,
+         0, 0, 0,
+        0, -1, 1) / 2
+  )
+)
+
+summary(joint_contrast, infer = TRUE)
+```
+
+
+3. AMF v/s average of F and W in Fusarium infected crops
+
+$H_0: \frac{\mu_{12}-\frac{\mu_{11}+\mu_{13}}{2}}{2} - \frac{\mu_{42}-\frac{\mu_{41}+\mu_{43}}{2}}{2} = 0$
+
+$H_a: \frac{\mu_{12}-\frac{\mu_{11}+\mu_{13}}{2}}{2} - \frac{\mu_{42}-\frac{\mu_{41}+\mu_{43}}{2}}{2} \neq 0$
+
+This contrast is AMF - average of F and W
+
+```{r}
+emm <- emmeans(model, ~ Whole_Plot * Treatment)
+joint_contrast_amf_f_w <-contrast(
+  emm,
+  method = list(
+    "Does cover crop modify the AMF vs average(F, W) effect under Fusarium?" =
+      c(-1/2, 1, -1/2,
+         0,   0,  0,
+         0,   0,  0,
+         1/2, -1, 1/2)
+  )
+)
+
+
+summary(joint_contrast_amf_f_w, infer = TRUE)
+```
+
+
+
+4. Test the difference in AMF - placebo (W) for cover crop and Fusarium and AMF - placebo (W) for no cover crop in non-Fusarium, i.e. 
+
+$H_0: \frac{\mu_{22}-\mu_{21}}{2} - \frac{\mu_{32}-\mu_{31}}{2} = 0$
+
+This contrast is AMF vs W in Fusarium, averaged over cover crop
+
+$H_a: \frac{\mu_{22}-\mu_{21}}{2} - \frac{\mu_{32}-\mu_{31}}{2} \neq 0$
+
+```{r}
+emm <- emmeans(model, ~ Whole_Plot * Treatment)
+joint_contrast <- contrast(
+  emm,
+  method = list(
+    "Does cover crop modify the AMF vs W effect under non-Fusarium infected?" =
+      c(0, 0, 0,
+         -1, 1, 0,
+         1, -1, 0,
+        0, 0, 0) / 2
+  )
+)
+
+summary(joint_contrast, infer = TRUE)
+```
+
+
+5. AMF v/s F w.r.t cover crop in non-Fusarium infected:
+
+$H_0: \frac{\mu_{22}-\mu_{23}}{2} - \frac{\mu_{32}-\mu_{33}}{2} = 0$
+
+This contrast is AMF vs W in non-Fusarium, averaged over cover crop
+
+$H_a: \frac{\mu_{22}-\mu_{23}}{2} - \frac{\mu_{32}-\mu_{33}}{2} \neq 0$
+```{r}
+emm <- emmeans(model, ~ Whole_Plot * Treatment)
+joint_contrast <- contrast(
+  emm,
+  method = list(
+    "Does cover crop modify the AMF vs F effect under non-Fusarium?" =
+      c(0, 0, 0,
+        0, 1, -1,
+        0, -1, 1,
+        0, 0, 0) / 2
+  )
+)
+
+summary(joint_contrast, infer = TRUE)
+```
+
+
+6. AMF v/s average of F and W in non-Fusarium infected crops:
+
+$H_0: \frac{\mu_{22}-\frac{\mu_{21}+\mu_{23}}{2}}{2} - \frac{\mu_{32}-\frac{\mu_{31}+\mu_{33}}{2}}{2} = 0$
+
+$H_a: \frac{\mu_{22}-\frac{\mu_{21}+\mu_{23}}{2}}{2} - \frac{\mu_{32}-\frac{\mu_{31}+\mu_{33}}{2}}{2} \neq 0$
+
+This contrast is AMF - average of F and W
+
+```{r}
+emm <- emmeans(model, ~ Whole_Plot * Treatment)
+joint_contrast_amf_f_w <-contrast(
+  emm,
+  method = list(
+    "Does cover crop modify the AMF vs average(F, W) effect under Fusarium?" =
+      c(0, 0, 0,
+        -1/2, 1, -1/2,
+         1/2, -1, 1/2,
+        0, 0, 0)
+  )
+)
+
+
+summary(joint_contrast_amf_f_w, infer = TRUE)
+```
