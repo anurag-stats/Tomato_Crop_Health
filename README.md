@@ -8,3 +8,5 @@ The secondary goal was to analyze the spectral data collected through satellites
 
 A final report was written highlighting the major findings and next steps for this project in the file titled agriculture_report.
 
+There are corresponding R scripts for each Rmd file which were generated using the same Rmd files.
+
